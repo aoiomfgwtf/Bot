@@ -1,7 +1,7 @@
 import os
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Состояния диалога
-SELECT_STATE, SELECT_LEVEL, FEEDBACK = range(3)
+SELECT_TIMEZONE, SELECT_STATE, SELECT_LEVEL, FEEDBACK = range(4)
 
 # Получаем токен из переменных окружения
 TOKEN = os.environ.get('TOKEN')
@@ -178,7 +178,7 @@ def update_advice_stats(state, level, selected_index=None):
             # Пользователь выбрал "Ничего не помогло"
             # Уменьшаем рейтинг всех советов (-10%, но не менее 0)
             for advice in current_stats:
-                current_stats[advice] = max(0, current_stats.get(advice, 100) - 10)
+                current_stats[advice] = max(0, current_stats.get(advice, 100) - 10
         
         stats[state][level] = current_stats
         save_advice_stats(stats)
@@ -192,6 +192,13 @@ def main_kb():
     return ReplyKeyboardMarkup([
         ["Апатия", "Мания"],
         ["📊 Статистика"]
+    ], resize_keyboard=True)
+
+def timezone_kb():
+    return ReplyKeyboardMarkup([
+        ["+3 (Москва)", "+5 (Екатеринбург)"],
+        ["0 (Лондон)", "-4 (Нью-Йорк)"],
+        ["+8 (Пекин)", "+10 (Сидней)"]
     ], resize_keyboard=True)
 
 def level_kb():
@@ -213,6 +220,13 @@ def feedback_kb(state, level):
 # Обработчики команд
 async def start(update: Update, context: CallbackContext):
     try:
+        if 'timezone' not in context.user_data:
+            await update.message.reply_text(
+                "⏰ Пожалуйста, укажите ваш часовой пояс:",
+                reply_markup=timezone_kb()
+            )
+            return SELECT_TIMEZONE
+        
         await update.message.reply_text(
             "📊 Выбери текущее состояние:",
             reply_markup=main_kb()
@@ -221,6 +235,27 @@ async def start(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"Ошибка в start: {e}")
         raise
+
+async def handle_timezone(update: Update, context: CallbackContext):
+    try:
+        tz_text = update.message.text
+        # Извлекаем число из текста (например, "+3 (Москва)" -> 3)
+        tz = int(''.join(filter(str.isdigit, tz_text.split()[0])))
+        if not -12 <= tz <= 14:
+            raise ValueError
+        
+        context.user_data['timezone'] = tz
+        await update.message.reply_text(
+            f"⏰ Часовой пояс GMT{tz} сохранён!",
+            reply_markup=main_kb()
+        )
+        return SELECT_STATE
+    except (ValueError, TypeError):
+        await update.message.reply_text(
+            "❌ Неверный формат. Пожалуйста, выберите часовой пояс из предложенных:",
+            reply_markup=timezone_kb()
+        )
+        return SELECT_TIMEZONE
 
 async def show_stats(update: Update, context: CallbackContext):
     try:
@@ -300,11 +335,14 @@ async def handle_level(update: Update, context: CallbackContext):
             return SELECT_LEVEL
         
         advice = ADVICES[state][level]
+        tz = context.user_data.get('timezone', 0)
+        now = datetime.now(timezone(timedelta(hours=tz)))
+        
         context.user_data['current_advice'] = {
             "advice": advice,
             "state": state,
             "level": level,
-            "date": datetime.now().strftime("%d.%m.%Y %H:%M")
+            "date": now.strftime("%d.%m.%Y %H:%M (GMT%z)")
         }
         
         # Загружаем статистику эффективности для этих советов
@@ -399,6 +437,7 @@ def main():
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler('start', start)],
             states={
+                SELECT_TIMEZONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_timezone)],
                 SELECT_STATE: [
                     MessageHandler(filters.TEXT & filters.Regex("^(Апатия|Мания)$"), handle_state),
                     MessageHandler(filters.TEXT & filters.Regex("^📊 Статистика$"), show_stats)
