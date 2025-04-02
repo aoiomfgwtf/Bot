@@ -12,7 +12,7 @@ from telegram.ext import (
 )
 
 # Настройки
-TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+TOKEN = "7587845741:AAE54-7FfJTcECoPwfVg-rEHttFrkK9IkSM"
 DATA_FILE = "user_data.csv"
 ADVICES_FILE = "advices.json"
 
