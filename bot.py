@@ -23,10 +23,20 @@ logger = logging.getLogger(__name__)
 # Состояния диалога
 SELECT_STATE, SELECT_LEVEL, FEEDBACK = range(3)
 
-# Токен бота (ЗАМЕНИ НА СВОЙ ИЛИ ИСПОЛЬЗУЙ ПЕРЕМЕННУЮ ОКРУЖЕНИЯ)
-TOKEN = os.getenv("TOKEN") or "ВАШ_ТОКЕН_ТУТ"
+# Получаем токен из переменных окружения
+TOKEN = os.environ.get('TOKEN')
+if not TOKEN:
+    logger.error("❌ Токен не найден в переменных окружения!")
+    raise ValueError("Токен бота не установлен. Добавьте переменную TOKEN в настройки Railway")
 
-# Полные данные для всех состояний (ТОЧНО КАК ВЫ ПРОСИЛИ)
+# Проверка формата токена
+if ':' not in TOKEN:
+    logger.error(f"❌ Неверный формат токена: {TOKEN[:5]}...")
+    raise ValueError("Неверный формат токена. Должен быть в формате '123456789:ABCdefGHIJK...'")
+
+logger.info(f"✅ Токен получен (первые 5 символов): {TOKEN[:5]}...")
+
+# Полные данные для всех состояний (как вы просили)
 ADVICES = {
     "Апатия": {
         "1": {
@@ -84,8 +94,33 @@ ADVICES = {
     }
 }
 
-# Файл для статистики
-STATS_FILE = "stats.json"
+# Файл для статистики (используем /data для Railway)
+STATS_FILE = "/data/stats.json"
+
+def ensure_data_dir():
+    """Создаем директорию для данных, если ее нет"""
+    os.makedirs(os.path.dirname(STATS_FILE), exist_ok=True)
+
+def load_stats():
+    ensure_data_dir()
+    try:
+        if os.path.exists(STATS_FILE):
+            with open(STATS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        logger.error(f"Ошибка загрузки статистики: {e}")
+        return {}
+
+def save_stats(stats):
+    try:
+        ensure_data_dir()
+        with open(STATS_FILE, "w", encoding="utf-8") as f:
+            json.dump(stats, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка сохранения статистики: {e}")
+        return False
 
 # Клавиатуры
 def main_kb():
@@ -104,89 +139,126 @@ def feedback_kb(advices):
 
 # Обработчики команд
 async def start(update: Update, context: CallbackContext):
-    await update.message.reply_text(
-        "📊 Выбери текущее состояние:",
-        reply_markup=main_kb()
-    )
-    return SELECT_STATE
+    try:
+        await update.message.reply_text(
+            "📊 Выбери текущее состояние:",
+            reply_markup=main_kb()
+        )
+        return SELECT_STATE
+    except Exception as e:
+        logger.error(f"Ошибка в start: {e}")
+        raise
+
+async def show_stats(update: Update, context: CallbackContext):
+    try:
+        stats = load_stats()
+        if not stats:
+            await update.message.reply_text("📊 Статистика пока пуста")
+            return SELECT_STATE
+        
+        stats_text = "📊 История состояний:\n\n"
+        for entry_id, entry in stats.items():
+            stats_text += (
+                f"📅 {entry['date']}\n"
+                f"• Состояние: {entry['state']} (уровень {entry['level']})\n"
+                f"• Помогло: {entry.get('helped', 'не указано')}\n"
+                f"• Риск: {entry['risk']}\n\n"
+            )
+        
+        await update.message.reply_text(stats_text)
+        await update.message.reply_text(
+            "Выбери состояние:",
+            reply_markup=main_kb()
+        )
+        return SELECT_STATE
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка загрузки статистики: {e}")
+        logger.error(f"Ошибка в show_stats: {e}")
+        return SELECT_STATE
 
 async def handle_state(update: Update, context: CallbackContext):
-    text = update.message.text
-    
-    if text == "📊 Статистика":
-        return await show_stats(update, context)
+    try:
+        text = update.message.text
         
-    if text not in ADVICES:
-        await update.message.reply_text("Ошибка: выбери Апатия или Мания")
+        if text == "📊 Статистика":
+            return await show_stats(update, context)
+            
+        if text not in ADVICES:
+            await update.message.reply_text("Ошибка: выбери Апатия или Мания")
+            return SELECT_STATE
+        
+        context.user_data['state'] = text
+        await update.message.reply_text(
+            f"🔢 Выбери уровень (1-5):",
+            reply_markup=level_kb()
+        )
+        return SELECT_LEVEL
+    except Exception as e:
+        logger.error(f"Ошибка в handle_state: {e}")
+        await update.message.reply_text("⚠️ Произошла ошибка. Попробуй еще раз.")
         return SELECT_STATE
-    
-    context.user_data['state'] = text
-    await update.message.reply_text(
-        f"🔢 Выбери уровень (1-5):",
-        reply_markup=level_kb()
-    )
-    return SELECT_LEVEL
 
 async def handle_level(update: Update, context: CallbackContext):
-    level = update.message.text
-    state = context.user_data.get('state')
-    
-    if not state or state not in ADVICES:
-        await update.message.reply_text("Ошибка: состояние не выбрано. Начни с /start")
-        return ConversationHandler.END
-    
-    if level not in ADVICES[state]:
-        await update.message.reply_text("Ошибка: выбери уровень от 1 до 5")
-        return SELECT_LEVEL
-    
-    advice = ADVICES[state][level]
-    context.user_data['current_advice'] = {
-        "advice": advice,
-        "state": state,
-        "level": level,
-        "date": datetime.now().strftime("%d.%m.%Y %H:%M")
-    }
-    
-    text = (
-        f"📌 {advice['description']}\n\n"
-        f"⚠️ Уровень перегрузки: {advice['risk']}\n\n"
-        "💡 Советы:\n" + "\n".join(f"• {a}" for a in advice['advices'])
-    )
-    
-    await update.message.reply_text(text)
-    await update.message.reply_text(
-        "Что из этого помогло?",
-        reply_markup=feedback_kb(advice['advices'])
-    )
-    return FEEDBACK
+    try:
+        level = update.message.text
+        state = context.user_data.get('state')
+        
+        if not state or state not in ADVICES:
+            await update.message.reply_text("Ошибка: состояние не выбрано. Начни с /start")
+            return ConversationHandler.END
+        
+        if level not in ADVICES[state]:
+            await update.message.reply_text("Ошибка: выбери уровень от 1 до 5")
+            return SELECT_LEVEL
+        
+        advice = ADVICES[state][level]
+        context.user_data['current_advice'] = {
+            "advice": advice,
+            "state": state,
+            "level": level,
+            "date": datetime.now().strftime("%d.%m.%Y %H:%M")
+        }
+        
+        text = (
+            f"📌 {advice['description']}\n\n"
+            f"⚠️ Уровень перегрузки: {advice['risk']}\n\n"
+            "💡 Советы:\n" + "\n".join(f"• {a}" for a in advice['advices'])
+        )
+        
+        await update.message.reply_text(text)
+        await update.message.reply_text(
+            "Что из этого помогло?",
+            reply_markup=feedback_kb(advice['advices'])
+        )
+        return FEEDBACK
+    except Exception as e:
+        logger.error(f"Ошибка в handle_level: {e}")
+        await update.message.reply_text("⚠️ Произошла ошибка. Попробуй еще раз.")
+        return SELECT_STATE
 
 async def handle_feedback(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     
-    current_data = context.user_data.get('current_advice', {})
-    advice = current_data.get("advice", {})
-    choice = query.data
-    
-    # Обновляем статистику
-    stats = {}
-    if os.path.exists(STATS_FILE):
-        with open(STATS_FILE, "r", encoding="utf-8") as f:
-            stats = json.load(f)
-    
-    entry_id = f"{current_data['state']}_{current_data['level']}_{datetime.now().timestamp()}"
-    
-    if choice == "help_none":
-        stats[entry_id] = {
-            "date": current_data["date"],
-            "state": current_data["state"],
-            "level": current_data["level"],
-            "risk": advice["risk"],
-            "helped": "ничего"
-        }
-        await query.edit_message_text("🔄 Попробуем другие методы в следующий раз.")
-    else:
-        try:
+    try:
+        current_data = context.user_data.get('current_advice', {})
+        advice = current_data.get("advice", {})
+        choice = query.data
+        
+        # Обновляем статистику
+        stats = load_stats()
+        entry_id = f"{current_data['state']}_{current_data['level']}_{datetime.now().timestamp()}"
+        
+        if choice == "help_none":
+            stats[entry_id] = {
+                "date": current_data["date"],
+                "state": current_data["state"],
+                "level": current_data["level"],
+                "risk": advice["risk"],
+                "helped": "ничего"
+            }
+            await query.edit_message_text("🔄 Попробуем другие методы в следующий раз.")
+        else:
             idx = int(choice.split("_")[1])
             helped_advice = advice['advices'][idx]
             stats[entry_id] = {
@@ -197,75 +269,48 @@ async def handle_feedback(update: Update, context: CallbackContext):
                 "helped": helped_advice
             }
             await query.edit_message_text(f"✅ Запомнил: '{helped_advice}' помог.")
-        except:
-            await query.edit_message_text("⚠️ Ошибка обработки выбора")
-    
-    with open(STATS_FILE, "w", encoding="utf-8") as f:
-        json.dump(stats, f, ensure_ascii=False, indent=2)
-    
-    await query.message.reply_text(
-        "🔄 Хочешь проанализировать состояние снова?",
-        reply_markup=main_kb()
-    )
-    return SELECT_STATE
-
-async def show_stats(update: Update, context: CallbackContext):
-    if not os.path.exists(STATS_FILE):
-        await update.message.reply_text("📊 Статистика пока пуста")
-        return
-    
-    with open(STATS_FILE, "r", encoding="utf-8") as f:
-        stats = json.load(f)
-    
-    if not stats:
-        await update.message.reply_text("📊 Статистика пока пуста")
-        return
-    
-    stats_text = "📊 История состояний:\n\n"
-    for entry_id, entry in stats.items():
-        stats_text += (
-            f"📅 {entry['date']}\n"
-            f"• Состояние: {entry['state']} (уровень {entry['level']})\n"
-            f"• Помогло: {entry.get('helped', 'не указано')}\n"
-            f"• Риск: {entry['risk']}\n\n"
+        
+        save_stats(stats)
+        
+        # Возвращаем к началу
+        await query.message.reply_text(
+            "🔄 Хочешь проанализировать состояние снова?",
+            reply_markup=main_kb()
         )
-    
-    await update.message.reply_text(stats_text)
-    await update.message.reply_text(
-        "Выбери состояние:",
-        reply_markup=main_kb()
-    )
-    return SELECT_STATE
+        return SELECT_STATE
+    except Exception as e:
+        logger.error(f"Ошибка в handle_feedback: {e}")
+        await query.edit_message_text("⚠️ Произошла ошибка. Попробуй еще раз.")
+        return SELECT_STATE
 
 async def cancel(update: Update, context: CallbackContext):
     await update.message.reply_text("Диалог прерван. Нажми /start чтобы начать заново.")
     return ConversationHandler.END
 
 def main():
-    # Проверка токена
-    if not TOKEN or TOKEN == "ВАШ_ТОКЕН_ТУТ":
-        print("❌ ОШИБКА: Токен не установлен!")
-        return
-    
-    application = Application.builder().token(TOKEN).build()
-    
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-        states={
-            SELECT_STATE: [
-                MessageHandler(filters.TEXT & filters.Regex("^(Апатия|Мания)$"), handle_state),
-                MessageHandler(filters.TEXT & filters.Regex("^📊 Статистика$"), show_stats)
-            ],
-            SELECT_LEVEL: [MessageHandler(filters.TEXT & filters.Regex("^[1-5]$"), handle_level)],
-            FEEDBACK: [CallbackQueryHandler(handle_feedback)]
-        },
-        fallbacks=[CommandHandler('cancel', cancel)]
-    )
-    
-    application.add_handler(conv_handler)
-    
-    print("✅ Бот запущен")
-    application.run_polling()
+    try:
+        application = Application.builder().token(TOKEN).build()
+        
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start)],
+            states={
+                SELECT_STATE: [
+                    MessageHandler(filters.TEXT & filters.Regex("^(Апатия|Мания)$"), handle_state),
+                    MessageHandler(filters.TEXT & filters.Regex("^📊 Статистика$"), show_stats)
+                ],
+                SELECT_LEVEL: [MessageHandler(filters.TEXT & filters.Regex("^[1-5]$"), handle_level)],
+                FEEDBACK: [CallbackQueryHandler(handle_feedback)]
+            },
+            fallbacks=[CommandHandler('cancel', cancel)]
+        )
+        
+        application.add_handler(conv_handler)
+        
+        logger.info("✅ Бот запускается...")
+        application.run_polling()
+    except Exception as e:
+        logger.critical(f"❌ Критическая ошибка: {e}")
+        raise
 
 if __name__ == '__main__':
     main()
