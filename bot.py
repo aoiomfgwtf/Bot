@@ -1,7 +1,7 @@
 import os
 import logging
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
@@ -13,30 +13,29 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-# Настройка логов
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Состояния диалога
-SELECT_TIMEZONE, SELECT_STATE, SELECT_LEVEL, FEEDBACK = range(4)
 
-# Получаем токен из переменных окружения
+SELECT_STATE, SELECT_LEVEL, FEEDBACK = range(3)
+
+
 TOKEN = os.environ.get('TOKEN')
 if not TOKEN:
     logger.error("❌ Токен не найден в переменных окружения!")
     raise ValueError("Токен бота не установлен. Добавьте переменную TOKEN в настройки Railway")
 
-# Проверка формата токена
+
 if ':' not in TOKEN:
     logger.error(f"❌ Неверный формат токена: {TOKEN[:5]}...")
     raise ValueError("Неверный формат токена. Должен быть в формате '123456789:ABCdefGHIJK...'")
 
 logger.info(f"✅ Токен получен (первые 5 символов): {TOKEN[:5]}...")
 
-# Полные данные для всех состояний с улучшенными советами
+
 ADVICES = {
     "Апатия": {
         "1": {
@@ -94,7 +93,7 @@ ADVICES = {
     }
 }
 
-# Файлы для данных
+
 STATS_FILE = "/data/stats.json"
 ADVICE_STATS_FILE = "/data/advice_stats.json"
 
@@ -130,7 +129,7 @@ def load_advice_stats():
             with open(ADVICE_STATS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         
-        # Инициализация статистики советов, если файла нет
+    
         stats = {}
         for state, levels in ADVICES.items():
             stats[state] = {}
@@ -163,22 +162,18 @@ def update_advice_stats(state, level, selected_index=None):
         
         current_stats = stats[state][level]
         
-        if selected_index is not None:
-            # Пользователь выбрал конкретный совет
+        if selected_index is not None: 
             selected_advice = ADVICES[state][level]["advices"][selected_index]
-            
-            # Увеличиваем рейтинг выбранного совета (+10%, но не более 100)
+                     
             current_stats[selected_advice] = min(100, current_stats.get(selected_advice, 100) + 10)
             
-            # Уменьшаем рейтинг остальных советов (-10%, но не менее 0)
             for advice in current_stats:
                 if advice != selected_advice:
                     current_stats[advice] = max(0, current_stats.get(advice, 100) - 10)
         else:
-            # Пользователь выбрал "Ничего не помогло"
-            # Уменьшаем рейтинг всех советов (-10%, но не менее 0)
+            
             for advice in current_stats:
-                current_stats[advice] = max(0, current_stats.get(advice, 100) - 10
+                current_stats[advice] = max(0, current_stats.get(advice, 100) - 10)
         
         stats[state][level] = current_stats
         save_advice_stats(stats)
@@ -187,18 +182,11 @@ def update_advice_stats(state, level, selected_index=None):
         logger.error(f"Ошибка обновления статистики советов: {e}")
         return False
 
-# Клавиатуры
+
 def main_kb():
     return ReplyKeyboardMarkup([
         ["Апатия", "Мания"],
         ["📊 Статистика"]
-    ], resize_keyboard=True)
-
-def timezone_kb():
-    return ReplyKeyboardMarkup([
-        ["+3 (Москва)", "+5 (Екатеринбург)"],
-        ["0 (Лондон)", "-4 (Нью-Йорк)"],
-        ["+8 (Пекин)", "+10 (Сидней)"]
     ], resize_keyboard=True)
 
 def level_kb():
@@ -217,16 +205,9 @@ def feedback_kb(state, level):
     buttons.append([InlineKeyboardButton("❌ Ничего не помогло", callback_data="help_none")])
     return InlineKeyboardMarkup(buttons)
 
-# Обработчики команд
+
 async def start(update: Update, context: CallbackContext):
     try:
-        if 'timezone' not in context.user_data:
-            await update.message.reply_text(
-                "⏰ Пожалуйста, укажите ваш часовой пояс:",
-                reply_markup=timezone_kb()
-            )
-            return SELECT_TIMEZONE
-        
         await update.message.reply_text(
             "📊 Выбери текущее состояние:",
             reply_markup=main_kb()
@@ -235,27 +216,6 @@ async def start(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"Ошибка в start: {e}")
         raise
-
-async def handle_timezone(update: Update, context: CallbackContext):
-    try:
-        tz_text = update.message.text
-        # Извлекаем число из текста (например, "+3 (Москва)" -> 3)
-        tz = int(''.join(filter(str.isdigit, tz_text.split()[0])))
-        if not -12 <= tz <= 14:
-            raise ValueError
-        
-        context.user_data['timezone'] = tz
-        await update.message.reply_text(
-            f"⏰ Часовой пояс GMT{tz} сохранён!",
-            reply_markup=main_kb()
-        )
-        return SELECT_STATE
-    except (ValueError, TypeError):
-        await update.message.reply_text(
-            "❌ Неверный формат. Пожалуйста, выберите часовой пояс из предложенных:",
-            reply_markup=timezone_kb()
-        )
-        return SELECT_TIMEZONE
 
 async def show_stats(update: Update, context: CallbackContext):
     try:
@@ -276,8 +236,7 @@ async def show_stats(update: Update, context: CallbackContext):
             )
         
         await update.message.reply_text(stats_text)
-        
-        # Показываем эффективность советов
+      
         advice_text = "📊 Эффективность советов:\n\n"
         for state, levels in advice_stats.items():
             advice_text += f"🔹 {state}:\n"
@@ -335,21 +294,17 @@ async def handle_level(update: Update, context: CallbackContext):
             return SELECT_LEVEL
         
         advice = ADVICES[state][level]
-        tz = context.user_data.get('timezone', 0)
-        now = datetime.now(timezone(timedelta(hours=tz)))
-        
         context.user_data['current_advice'] = {
             "advice": advice,
             "state": state,
             "level": level,
-            "date": now.strftime("%d.%m.%Y %H:%M (GMT%z)")
+            "date": datetime.now().strftime("%d.%m.%Y %H:%M")
         }
         
-        # Загружаем статистику эффективности для этих советов
+
         advice_stats = load_advice_stats()
         current_stats = advice_stats.get(state, {}).get(level, {})
         
-        # Формируем текст с эффективностью
         advice_text = (
             f"📌 {advice['description']}\n\n"
             f"⚠️ Уровень перегрузки: {advice['risk']}\n\n"
@@ -380,7 +335,6 @@ async def handle_feedback(update: Update, context: CallbackContext):
         advice = current_data.get("advice", {})
         choice = query.data
         
-        # Обновляем основную статистику
         stats = load_stats()
         entry_id = f"{current_data['state']}_{current_data['level']}_{datetime.now().timestamp()}"
         
@@ -393,7 +347,6 @@ async def handle_feedback(update: Update, context: CallbackContext):
                 "helped": "ничего"
             }
             
-            # Обновляем статистику советов (ничего не помогло)
             update_advice_stats(current_data['state'], current_data['level'])
             
             await query.edit_message_text("🔄 Попробуем другие методы в следующий раз.")
@@ -407,15 +360,14 @@ async def handle_feedback(update: Update, context: CallbackContext):
                 "risk": advice["risk"],
                 "helped": helped_advice
             }
-            
-            # Обновляем статистику советов (выбранный совет помог)
+
             update_advice_stats(current_data['state'], current_data['level'], idx)
             
             await query.edit_message_text(f"✅ Запомнил: '{helped_advice}' помог.")
         
         save_stats(stats)
         
-        # Возвращаем к началу
+
         await query.message.reply_text(
             "🔄 Хочешь проанализировать состояние снова?",
             reply_markup=main_kb()
@@ -437,7 +389,6 @@ def main():
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler('start', start)],
             states={
-                SELECT_TIMEZONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_timezone)],
                 SELECT_STATE: [
                     MessageHandler(filters.TEXT & filters.Regex("^(Апатия|Мания)$"), handle_state),
                     MessageHandler(filters.TEXT & filters.Regex("^📊 Статистика$"), show_stats)
