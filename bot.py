@@ -12,7 +12,7 @@ from telegram.ext import (
 )
 
 # Настройки
-TOKEN = os.getenv("7587845741:AAE54-7FfJTcECoPwfVg-rEHttFrkK9IkSM")
+TOKEN = os.getenv("TOKEN")
 ADVICES_FILE = "advices.json"
 STATS_FILE = "stats.json"
 
