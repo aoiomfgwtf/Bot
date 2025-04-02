@@ -1,0 +1,6 @@
+import json
+
+with open("advices.json", "r", encoding="utf-8") as f:
+    advices = json.load(f)
+
+print(advices["states"]["Апатия"]["5"]["advices"])  # Выведет советы для апатии уровня 5
