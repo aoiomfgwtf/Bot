@@ -1,10 +1,4 @@
 import os
-TOKEN = os.getenv("TOKEN")
-
-if not TOKEN:
-    print("❌ ОШИБКА: Токен не найден! Проверь переменную TOKEN в Railway")
-    exit(1)  # Остановка бота
-import os
 import json
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
@@ -18,7 +12,7 @@ from telegram.ext import (
 )
 
 # Настройки
-TOKEN = os.getenv("TOKEN")
+TOKEN = "7587845741:AAE54-7FfJTcECoPwfVg-rEHttFrkK9IkSM"
 ADVICES_FILE = "advices.json"
 STATS_FILE = "stats.json"
 
