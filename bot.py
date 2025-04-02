@@ -21,8 +21,66 @@ logger = logging.getLogger(__name__)
 # Состояния диалога
 SELECT_STATE, SELECT_LEVEL, FEEDBACK = range(3)
 
-# Токен бота (замени на свой или используй переменную окружения)
-TOKEN = os.getenv("TOKEN") or "7587845741:AAE54-7FfJTcECoPwfVg-rEHttFrkK9IkSM"
+# Токен бота (ЗАМЕНИ НА СВОЙ!)
+TOKEN = os.getenv("TOKEN") or "ВАШ_ТОКЕН_ТУТ"
+
+# Полные данные для всех состояний и уровней
+ADVICES = {
+    "Апатия": {
+        "1": {
+            "description": "Отличное состояние! Поддержи его легкой активностью.",
+            "advices": ["Короткая прогулка", "Бодрая музыка", "Стакан воды"],
+            "risk": "Низкий риск"
+        },
+        "2": {
+            "description": "Легкая апатия. Не дай себе погрузиться глубже.",
+            "advices": ["Горячий душ", "Кофе", "Звонок другу"],
+            "risk": "Умеренный риск"
+        },
+        "3": {
+            "description": "Средняя апатия. Нужно активное действие.",
+            "advices": ["Уборка", "Спорт", "Рисование"],
+            "risk": "Высокий риск"
+        },
+        "4": {
+            "description": "Сильная апатия. Критическое состояние.",
+            "advices": ["Разговор с близким", "Прогулка на улице", "Контрастный душ"],
+            "risk": "Очень высокий риск"
+        },
+        "5": {
+            "description": "Критическая апатия. Срочно принимай меры.",
+            "advices": ["Экстренный звонок", "Медитация", "Выплеск эмоций"],
+            "risk": "Критический уровень"
+        }
+    },
+    "Мания": {
+        "1": {
+            "description": "Легкое возбуждение. Можно направить в работу.",
+            "advices": ["Фокусировка на задаче", "Запись идей", "Разминка"],
+            "risk": "Низкий риск"
+        },
+        "2": {
+            "description": "Умеренная мания. Контролируй энергию.",
+            "advices": ["Дыхательные упражнения", "Чай вместо кофе", "Таймер работы"],
+            "risk": "Умеренный риск"
+        },
+        "3": {
+            "description": "Сильная мания. Пора успокаиваться.",
+            "advices": ["Холодная вода на лицо", "Тихая музыка", "Заземление"],
+            "risk": "Высокий риск"
+        },
+        "4": {
+            "description": "Очень сильная мания. Остановись!",
+            "advices": ["Темная комната", "Дыхание 4-7-8", "Отдых без гаджетов"],
+            "risk": "Очень высокий риск"
+        },
+        "5": {
+            "description": "Критическая мания. Срочно успокаивайся!",
+            "advices": ["Лечь в постель", "Принять успокоительное", "Позвать на помощь"],
+            "risk": "Критический уровень"
+        }
+    }
+}
 
 # Клавиатуры
 def main_kb():
@@ -36,34 +94,6 @@ def feedback_kb(advices):
     buttons.append([InlineKeyboardButton("❌ Ничего не помогло", callback_data="help_none")])
     return InlineKeyboardMarkup(buttons)
 
-# Советы (можно вынести в JSON)
-ADVICES = {
-    "Апатия": {
-        "1": {
-            "description": "Отличное состояние! Поддержи его легкой активностью.",
-            "advices": ["Прогулка", "Музыка", "Вода"],
-            "risk": "Низкий риск"
-        },
-        "2": {
-            "description": "Есть риск провалиться глубже в мысли.",
-            "advices": ["Горячий душ", "Кофе", "Звонок другу"],
-            "risk": "Средний риск"
-        }
-    },
-    "Мания": {
-        "1": {
-            "description": "Легкое возбуждение - может быть полезно для работы.",
-            "advices": ["Фокусировка", "Запись идей", "Разминка"],
-            "risk": "Низкий риск"
-        },
-        "2": {
-            "description": "Состояние близкое к критическому.",
-            "advices": ["Дыхание 4-7-8", "Холод на лицо", "Тупое видео"],
-            "risk": "Высокий риск"
-        }
-    }
-}
-
 # Обработчики команд
 async def start(update: Update, context: CallbackContext):
     await update.message.reply_text(
@@ -74,6 +104,10 @@ async def start(update: Update, context: CallbackContext):
 
 async def handle_state(update: Update, context: CallbackContext):
     state = update.message.text
+    if state not in ADVICES:
+        await update.message.reply_text("Ошибка: выбери Апатия или Мания")
+        return SELECT_STATE
+    
     context.user_data['state'] = state
     await update.message.reply_text(
         f"🔢 Выбери уровень (1-5):",
@@ -83,11 +117,15 @@ async def handle_state(update: Update, context: CallbackContext):
 
 async def handle_level(update: Update, context: CallbackContext):
     level = update.message.text
-    state = context.user_data['state']
+    state = context.user_data.get('state')
     
-    if state not in ADVICES or level not in ADVICES[state]:
-        await update.message.reply_text("Ошибка: нет данных для этого состояния")
+    if not state or state not in ADVICES:
+        await update.message.reply_text("Ошибка: состояние не выбрано. Начни с /start")
         return ConversationHandler.END
+    
+    if level not in ADVICES[state]:
+        await update.message.reply_text("Ошибка: выбери уровень от 1 до 5")
+        return SELECT_LEVEL
     
     advice = ADVICES[state][level]
     context.user_data['current_advice'] = advice
@@ -110,16 +148,18 @@ async def handle_feedback(update: Update, context: CallbackContext):
     await query.answer()
     
     choice = query.data
-    advice = context.user_data['current_advice']
+    advice = context.user_data.get('current_advice', {})
     
     if choice == "help_none":
         await query.edit_message_text("🔄 Попробуем другие методы в следующий раз.")
     else:
-        idx = int(choice.split("_")[1])
-        helped_advice = advice['advices'][idx]
-        await query.edit_message_text(f"✅ Запомнил: '{helped_advice}' помог.")
+        try:
+            idx = int(choice.split("_")[1])
+            helped_advice = advice.get('advices', [])[idx]
+            await query.edit_message_text(f"✅ Запомнил: '{helped_advice}' помог.")
+        except:
+            await query.edit_message_text("⚠️ Ошибка обработки выбора")
     
-    # Возврат к началу
     await query.message.reply_text(
         "🔄 Хочешь проанализировать состояние снова?",
         reply_markup=main_kb()
@@ -131,6 +171,11 @@ async def cancel(update: Update, context: CallbackContext):
     return ConversationHandler.END
 
 def main():
+    # Проверка токена
+    if not TOKEN or TOKEN == "ВАШ_ТОКЕН_ТУТ":
+        print("❌ ОШИБКА: Токен не установлен!")
+        return
+    
     application = Application.builder().token(TOKEN).build()
     
     conv_handler = ConversationHandler(
@@ -146,6 +191,7 @@ def main():
     application.add_handler(conv_handler)
     
     # Запуск бота
+    print("✅ Бот запущен")
     application.run_polling()
 
 if __name__ == '__main__':
