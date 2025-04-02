@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 SELECT_STATE, SELECT_LEVEL, FEEDBACK = range(3)
 
 # Токен бота (ЗАМЕНИ НА СВОЙ ИЛИ ИСПОЛЬЗУЙ ПЕРЕМЕННУЮ ОКРУЖЕНИЯ)
-TOKEN = os.getenv("TOKEN") or "ВАШ_ТОКЕН_ТУТ"
+TOKEN = os.getenv("TOKEN") or "7587845741:AAE54-7FfJTcECoPwfVg-rEHttFrkK9IkSM"
 
 # Полные данные для всех состояний (ТОЧНО КАК ВЫ ПРОСИЛИ)
 ADVICES = {
@@ -243,7 +243,7 @@ async def cancel(update: Update, context: CallbackContext):
 
 def main():
     # Проверка токена
-    if not TOKEN or TOKEN == "ВАШ_ТОКЕН_ТУТ":
+    if not TOKEN or TOKEN == "7587845741:AAE54-7FfJTcECoPwfVg-rEHttFrkK9IkSM":
         print("❌ ОШИБКА: Токен не установлен!")
         return
     
