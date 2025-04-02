@@ -151,29 +151,36 @@ def save_advice_stats(stats):
         logger.error(f"Ошибка сохранения статистики советов: {e}")
         return False
 
-def update_advice_stats(state, level, advice_idx, helped):
+def update_advice_stats(state, level, selected_index=None):
+    """Обновляет статистику советов"""
     stats = load_advice_stats()
     
     try:
-        advice = ADVICES[state][level]["advices"][advice_idx]
-        
         if state not in stats:
             stats[state] = {}
         if level not in stats[state]:
             stats[state][level] = {a: 100 for a in ADVICES[state][level]["advices"]}
         
-        # Обновляем статистику
-        if helped:
-            stats[state][level][advice] = min(100, stats[state][level][advice] + 10)
+        current_stats = stats[state][level]
+        
+        if selected_index is not None:
+            # Пользователь выбрал конкретный совет
+            selected_advice = ADVICES[state][level]["advices"][selected_index]
+            
+            # Увеличиваем рейтинг выбранного совета (+10%, но не более 100)
+            current_stats[selected_advice] = min(100, current_stats.get(selected_advice, 100) + 10)
+            
+            # Уменьшаем рейтинг остальных советов (-10%, но не менее 0)
+            for advice in current_stats:
+                if advice != selected_advice:
+                    current_stats[advice] = max(0, current_stats.get(advice, 100) - 10)
         else:
-            stats[state][level][advice] = max(0, stats[state][level][advice] - 10)
+            # Пользователь выбрал "Ничего не помогло"
+            # Уменьшаем рейтинг всех советов (-10%, но не менее 0)
+            for advice in current_stats:
+                current_stats[advice] = max(0, current_stats.get(advice, 100) - 10)
         
-        # Обновляем остальные советы (если не выбраны)
-        if not helped:
-            for a in stats[state][level]:
-                if a != advice:
-                    stats[state][level][a] = min(100, stats[state][level][a] + 5)
-        
+        stats[state][level] = current_stats
         save_advice_stats(stats)
         return True
     except Exception as e:
@@ -349,8 +356,7 @@ async def handle_feedback(update: Update, context: CallbackContext):
             }
             
             # Обновляем статистику советов (ничего не помогло)
-            for i in range(len(advice['advices'])):
-                update_advice_stats(current_data['state'], current_data['level'], i, False)
+            update_advice_stats(current_data['state'], current_data['level'])
             
             await query.edit_message_text("🔄 Попробуем другие методы в следующий раз.")
         else:
@@ -365,7 +371,7 @@ async def handle_feedback(update: Update, context: CallbackContext):
             }
             
             # Обновляем статистику советов (выбранный совет помог)
-            update_advice_stats(current_data['state'], current_data['level'], idx, True)
+            update_advice_stats(current_data['state'], current_data['level'], idx)
             
             await query.edit_message_text(f"✅ Запомнил: '{helped_advice}' помог.")
         
