@@ -1,4 +1,19 @@
 import os
+import sys
+
+# Жесткая проверка токена
+TOKEN = os.getenv("TOKEN")  # Получаем из переменных окружения Railway
+
+if not TOKEN:
+    print("❌ КРИТИЧЕСКАЯ ОШИБКА: Токен не найден!", file=sys.stderr)
+    print("Проверь:", file=sys.stderr)
+    print("1. Добавлен ли TOKEN в Variables в Railway", file=sys.stderr)
+    print("2. Название переменной - точно 'TOKEN'", file=sys.stderr)
+    print("3. Токен не содержит лишних пробелов", file=sys.stderr)
+    sys.exit(1)  # Экстренная остановка
+
+print(f"✅ Токен получен. Первые 5 символов: {TOKEN[:5]}...")  # Для проверки
+import os
 import logging
 import json
 from datetime import datetime
