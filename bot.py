@@ -1,100 +1,131 @@
 import logging
-from telegram import Update, ReplyKeyboardMarkup
+import json
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
     CallbackContext,
     filters,
-    ConversationHandler
+    ConversationHandler,
+    CallbackQueryHandler
 )
-import pandas as pd
-import os
 
 # Настройки
-TOKEN = "7587845741:AAE54-7FfJTcECoPwfVg-rEHttFrkK9IkSM"  # Замените на свой токен!
+TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
 DATA_FILE = "user_data.csv"
+ADVICES_FILE = "advices.json"
 
-# Инициализация файла данных
-if not os.path.exists(DATA_FILE):
-    df = pd.DataFrame(columns=["user_id", "date", "state", "level", "action"])
-    df.to_csv(DATA_FILE, index=False)
+# Загрузка советов из JSON
+with open(ADVICES_FILE, "r", encoding="utf-8") as f:
+    ADVICES_DATA = json.load(f)
+
+# Состояния для ConversationHandler
+SELECTING_LEVEL, SELECTING_ADVICE, CONFIRMING = range(3)
 
 # Клавиатуры
-main_keyboard = ReplyKeyboardMarkup([["Апатия", "Мания"]], resize_keyboard=True)
-level_keyboard = ReplyKeyboardMarkup([[str(i) for i in range(1,6)]], resize_keyboard=True)
+def get_main_keyboard():
+    return ReplyKeyboardMarkup([["Апатия", "Мания"]], resize_keyboard=True)
+
+def get_level_keyboard():
+    return ReplyKeyboardMarkup([[str(i) for i in range(1,6)]], resize_keyboard=True)
+
+def get_advices_keyboard(advices):
+    buttons = []
+    for advice in advices:
+        buttons.append([InlineKeyboardButton(advice, callback_data=f"advice_{advices.index(advice)}")])
+    buttons.append([InlineKeyboardButton("Ничего не помогло", callback_data="advice_none")])
+    return InlineKeyboardMarkup(buttons)
 
 async def start(update: Update, context: CallbackContext):
     await update.message.reply_text(
         "Привет! Я помогу тебе отслеживать твое состояние.\n"
         "Выбери текущее состояние:",
-        reply_markup=main_keyboard
+        reply_markup=get_main_keyboard()
     )
+    return SELECTING_LEVEL
 
 async def handle_state(update: Update, context: CallbackContext):
     state = update.message.text
     context.user_data['current_state'] = state
     await update.message.reply_text(
         f"Вы выбрали {state}. Какой уровень? (1-5):",
-        reply_markup=level_keyboard
+        reply_markup=get_level_keyboard()
     )
+    return SELECTING_ADVICE
 
 async def handle_level(update: Update, context: CallbackContext):
     level = int(update.message.text)
     state = context.user_data.get('current_state', 'unknown')
     
     # Сохраняем данные
-    user_id = update.effective_user.id
-    date = update.message.date
-    new_entry = pd.DataFrame([[user_id, date, state, level, ""]], 
-                           columns=["user_id", "date", "state", "level", "action"])
-    new_entry.to_csv(DATA_FILE, mode='a', header=False, index=False)
+    context.user_data['current_level'] = level
     
-    # Отправляем рекомендации
-    recommendations = get_recommendations(state, level)
-    await update.message.reply_text(
-        recommendations + "-",
-        reply_markup=main_keyboard
+    # Получаем рекомендации
+    state_data = ADVICES_DATA["states"][state][str(level)]
+    message = (
+        f"📌 {state_data['description']}\n\n"
+        f"⚠️ Уровень перегрузки: {state_data['risk']}\n\n"
+        f"Советы:\n" + "\n".join(f"• {advice}" for advice in state_data['advices'])
     )
+    
+    await update.message.reply_text(
+        message,
+        reply_markup=get_advices_keyboard(state_data['advices'])
+    )
+    return CONFIRMING
 
-def get_recommendations(state, level):
-    if state == "Апатия":
-        return {
-            1: "Отличное состояние! Поддержи его легкой активностью.",
-            2: "Попробуй послушать музыку или выпей воды.",
-            3: "Прими душ, выпей энергос",
-            4: "Нужно что-то активное, поиграй на гитаре, сделай что-то руками (уборка и т.д.).",
-            5: "То, что ты чувствуешь это временно, дай эмоциям выйти, спокойнее бро"
-        }.get(level, "Неизвестный уровень")
+async def handle_advice_selection(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
     
-    elif state == "Мания":
-        return {
-            1: "Легкое возбуждение - может быть полезно для работы.",
-            2: "Сфокусируй энергию на одном деле, избегай многозадачности.",
-            3: "Попей воды, скушай вкусняхи, нужно успокоиться",
-            4: "Включи тупой видос, просто ляг и ничего не делай.",
-            5: "Немедленно остановись. Прими успокоительное, если нужно. Выдохни, все пройдет бро"
-        }.get(level, "Неизвестный уровень")
+    selected_advice = query.data
+    if selected_advice == "advice_none":
+        await query.edit_message_text("Хорошо, попробуем другие методы в следующий раз.")
+    else:
+        advice_index = int(selected_advice.split("_")[1])
+        state = context.user_data['current_state']
+        level = context.user_data['current_level']
+        selected_advice_text = ADVICES_DATA["states"][state][str(level)]['advices'][advice_index]
+        
+        # Здесь должна быть логика сохранения статистики
+        await query.edit_message_text(
+            f"✅ Вы отметили, что помогло: {selected_advice_text}\n"
+            "Эта информация сохранена для улучшения рекомендаций."
+        )
     
-    return "Неизвестное состояние"
+    await query.message.reply_text(
+        "Нажми /start для нового анализа.",
+        reply_markup=get_main_keyboard()
+    )
+    return ConversationHandler.END
 
 async def cancel(update: Update, context: CallbackContext):
     await update.message.reply_text(
-        "Диалог прерван. Нажми /start чтобы начать заново.",
-        reply_markup=ReplyKeyboardRemove()
+        "Диалог прерван. Нажми /start чтобы начать заново."
     )
     return ConversationHandler.END
 
 def main():
-    # Создаем Application
     application = Application.builder().token(TOKEN).build()
     
-    # Добавляем обработчики
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^(Апатия|Мания)$"), handle_state))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^[1-5]$"), handle_level))
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
+            SELECTING_LEVEL: [
+                MessageHandler(filters.TEXT & filters.Regex("^(Апатия|Мания)$"), handle_state)
+            ],
+            SELECTING_ADVICE: [
+                MessageHandler(filters.TEXT & filters.Regex("^[1-5]$"), handle_level)
+            ],
+            CONFIRMING: [
+                CallbackQueryHandler(handle_advice_selection)
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
     
-    # Запускаем бота
+    application.add_handler(conv_handler)
     application.run_polling()
 
 if __name__ == '__main__':
