@@ -10,6 +10,7 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler
 )
+SELECT_STATE, SELECT_LEVEL, FEEDBACK = range(3)
 
 # Настройки
 TOKEN = "7587845741:AAE54-7FfJTcECoPwfVg-rEHttFrkK9IkSM"
@@ -57,10 +58,25 @@ async def handle_state(update: Update, context: CallbackContext):
     )
     return SELECT_LEVEL
 
-async def handle_level(update: Update, context: CallbackContext):
-    level = update.message.text
-    state = context.user_data['state']
+async def handle_feedback(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
     
+    # Получаем выбранный вариант
+    choice = query.data
+    if choice == "help_none":
+        await query.edit_message_text("🔄 Попробуем другие методы в следующий раз.")
+    else:
+        advice_index = int(choice.split("_")[1])
+        helped_advice = context.user_data['current_advice']['advices'][advice_index]
+        await query.edit_message_text(f"✅ Запомнил: '{helped_advice}' помог.")
+    
+    # Возвращаем к началу
+    await query.message.reply_text(
+        "🔄 Хочешь проанализировать состояние снова?",
+        reply_markup=main_kb()
+    )
+    return SELECT_STATE
     # Сохраняем для фидбека
     context.user_data['current_advice'] = ADVICES["states"][state][level]
     
@@ -127,7 +143,7 @@ def main():
         states={
             SELECT_STATE: [MessageHandler(filters.TEXT & filters.Regex("^(Апатия|Мания)$"), handle_state)],
             SELECT_LEVEL: [MessageHandler(filters.TEXT & filters.Regex("^[1-5]$"), handle_level)],
-            FEEDBACK: [CallbackQueryHandler(handle_feedback)]
+            FEEDBACK: [CallbackQueryHandler(handle_feedback)]  # Добавлено!
         },
         fallbacks=[CommandHandler('cancel', lambda u,c: ConversationHandler.END)]
     )
